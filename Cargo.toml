@@ -1,0 +1,45 @@
+[package]
+name = "lsclones"
+description = "a command line utility to list clone and unique files and directories in your filesystem to help with sorting/cleaning"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-only"
+authors = ["Michel Pastor <shellixyz@gmail.com>"]
+# rust-version = "1.61"
+repository = "https://github.com/shellixyz/lsclones"
+homepage = "https://github.com/shellixyz/lsclones"
+keywords = ["duplicate", "dupes", "search", "fclones", "clone"]
+categories = ["command-line-utilities", "filesystem"]
+readme = "README.md"
+publish = false
+
+[[bin]]
+name = "lsc"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.66"
+bunt = "0.2.7"
+clap = { version = "4.0.32", features = ["derive", "env"] }
+coarsetime = "0.1.22"
+crossterm = "0.25.0"
+ctrlc = "3.2.4"
+derive_more = "0.99.17"
+env_logger = "0.10.0"
+fs-err = { git = "https://github.com/shellixyz/fs-err", branch = "custom", version = "3.0.0" }
+getset = "0.1.2"
+humantime = "2.1.0"
+id_tree = "1.8.0"
+itertools = "0.10.5"
+lazy_static = "1.4.0"
+log = "0.4.17"
+num-format = "0.4.4"
+ouroboros = "0.15.5"
+path-absolutize = "3.0.14"
+scopeguard = "1.1.0"
+serde_json = "1.0.89"
+size = "0.4.1"
+strum = { version = "0.24.1", features = ["derive"] }
+tap = "1.0.1"
+thiserror = "1.0.38"
+walkdir = "2.3.2"

@@ -346,21 +346,21 @@ impl<'a> Node<'a> {
 
 }
 
-impl<'a> PartialEq for Node<'a> {
+impl PartialEq for Node<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.node_id == other.node_id
     }
 }
 
-impl<'a> Eq for Node<'a> {}
+impl Eq for Node<'_> {}
 
-impl<'a> Hash for Node<'a> {
+impl Hash for Node<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.node_id.hash(state);
     }
 }
 
-impl<'a> Display for Node<'a> {
+impl Display for Node<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.node.data().path.to_string_lossy())
     }
@@ -444,7 +444,7 @@ impl<'a> DirectoryNode<'a> {
     }
 
     pub fn traverse_nodes(&self, order: TraversalOrder, include_self: bool) -> NodesIter<'a> {
-        NodesIter::traverse(self.tree, &self.node_id(), include_self, None, order).unwrap()
+        NodesIter::traverse(self.tree, self.node_id(), include_self, None, order).unwrap()
     }
 
     pub fn traverse_path_nodes(&self, path: impl AsRef<Path>, order: TraversalOrder, include_path: bool) -> Result<NodesIter<'a>, TraversePathError> {
@@ -454,11 +454,11 @@ impl<'a> DirectoryNode<'a> {
     }
 
     pub fn traverse_directory_nodes(&self, order: TraversalOrder, include_self: bool) -> DirectoryNodesIter<'a> {
-        DirectoryNodesIter::traverse(self.tree, &self.node_id(), include_self, order).unwrap()
+        DirectoryNodesIter::traverse(self.tree, self.node_id(), include_self, order).unwrap()
     }
 
     pub fn traverse_directories(&self, order: TraversalOrder, include_self: bool) -> DirectoriesIter<'a> {
-        DirectoriesIter::traverse(self.tree, &self.node_id(), include_self, order).unwrap()
+        DirectoriesIter::traverse(self.tree, self.node_id(), include_self, order).unwrap()
     }
 
     pub fn traverse_path_directory_nodes(&self, path: impl AsRef<Path>, order: TraversalOrder, include_path: bool) -> Result<DirectoryNodesIter<'a>, TraversePathError> {
@@ -474,11 +474,11 @@ impl<'a> DirectoryNode<'a> {
     }
 
     pub fn traverse_files(&self, order: TraversalOrder) -> FilesIter<'a> {
-        FilesIter::traverse(self.tree, &self.node_id(), true, order).unwrap()
+        FilesIter::traverse(self.tree, self.node_id(), true, order).unwrap()
     }
 
     pub fn traverse_file_nodes(&self, order: TraversalOrder) -> FileNodesIter<'a> {
-        FileNodesIter::traverse(self.tree, &self.node_id(), true, order).unwrap()
+        FileNodesIter::traverse(self.tree, self.node_id(), true, order).unwrap()
     }
 
     pub fn traverse_path_files(&self, path: impl AsRef<Path>, order: TraversalOrder) -> Result<FilesIter<'a>, TraversePathError> {
@@ -537,21 +537,21 @@ impl<'a> DirectoryNode<'a> {
 
 }
 
-impl<'a> PartialEq for DirectoryNode<'a> {
+impl PartialEq for DirectoryNode<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.node_id == other.node_id
     }
 }
 
-impl<'a> Eq for DirectoryNode<'a> {}
+impl Eq for DirectoryNode<'_> {}
 
-impl<'a> Hash for DirectoryNode<'a> {
+impl Hash for DirectoryNode<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.node_id.hash(state);
     }
 }
 
-impl<'a> Display for DirectoryNode<'a> {
+impl Display for DirectoryNode<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.node.data().path.to_string_lossy())
     }
@@ -579,21 +579,21 @@ impl<'a> FileNode<'a> {
 
 }
 
-impl<'a> PartialEq for FileNode<'a> {
+impl PartialEq for FileNode<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.node_id == other.node_id
     }
 }
 
-impl<'a> Eq for FileNode<'a> {}
+impl Eq for FileNode<'_> {}
 
-impl<'a> Hash for FileNode<'a> {
+impl Hash for FileNode<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.node_id.hash(state);
     }
 }
 
-impl<'a> Display for FileNode<'a> {
+impl Display for FileNode<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.node.data().path.to_string_lossy())
     }
@@ -761,7 +761,7 @@ impl FSTree {
         let path = path.as_ref().absolutize().unwrap();
         let mut current_node_id = self.0.root_node_id().unwrap();
         for component in path.components().skip(1) {
-            current_node_id = self.0.get(&current_node_id).unwrap().children().iter().find(|node_id| {
+            current_node_id = self.0.get(current_node_id).unwrap().children().iter().find(|node_id| {
                 let path::Component::Normal(comp_os_str) = component else { unreachable!() };
                 self.0.get(node_id).unwrap().data().name == comp_os_str
             })
@@ -944,7 +944,7 @@ impl FSTree {
         let dir: PathBuf = dir.into();
         if ! dir.is_dir() { return Err(anyhow!("not a directory: {}", dir.to_string_lossy())); }
         let dir_node_id = self.insert_path_impl(&dir, PathKind::Directory)?;
-        let mut dirs_to_process = VecDeque::from_iter([(dir_node_id, dir)].into_iter());
+        let mut dirs_to_process = VecDeque::from_iter([(dir_node_id, dir)]);
         let (mut dir_count, mut file_count): (u64, u64) = (1, 0);
         while let Some((dir_node_id, dir)) = dirs_to_process.pop_back() {
             let read_dir_result = std::fs::read_dir(&dir);
@@ -1074,9 +1074,7 @@ impl<'a> Iterator for NodesIter<'a> {
         if let Some(kind) = self.kind {
             self.iter.find_map(|node_id| {
                 let node_data = self.tree.0.get(&node_id).unwrap();
-                (node_data.data().kind == kind).then(||
-                    Node { tree: self.tree, node_id, node: node_data }
-                )
+                (node_data.data().kind == kind).then_some(Node { tree: self.tree, node_id, node: node_data })
             })
         } else {
             let node_id = self.iter.next()?;
@@ -1159,7 +1157,7 @@ impl<'a> Iterator for DirectoriesIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.find_map(|node_id| {
             let node_data = self.tree.0.get(node_id.borrow()).unwrap().data();
-            node_data.kind.is_directory().then(|| node_data.path.as_path())
+            node_data.kind.is_directory().then_some(node_data.path.as_path())
         })
     }
 }
@@ -1185,7 +1183,7 @@ impl<'a> Iterator for FilesIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.find_map(|node_id| {
             let node_data = self.tree.0.get(node_id.borrow()).unwrap().data();
-            node_data.kind.is_file().then(|| node_data.path.as_path())
+            node_data.kind.is_file().then_some(node_data.path.as_path())
         })
     }
 }

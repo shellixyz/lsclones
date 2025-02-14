@@ -1,21 +1,35 @@
-use std::{path::{PathBuf, Path}, collections::HashSet, io::{self, Write}};
+use std::{
+    collections::HashSet,
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
 
 use crossterm::cursor;
 use derive_more::{Deref, IntoIterator};
 use getset::CopyGetters;
 use itertools::Itertools;
+use num_format::{Locale, ToFormattedString};
 use scopeguard::defer;
-use num_format::{ToFormattedString, Locale};
 use size::Size;
 
-use crate::{fs, clones::db::{ClonesDB, PartitionedDirClones, DirCloneFilesStats}, path::{HashedAbsolutePathRef}, error_behavior::ErrorBehavior, call_rate_limiter::CallRateLimiter};
+use crate::{
+    call_rate_limiter::CallRateLimiter,
+    clones::db::{ClonesDB, DirCloneFilesStats, PartitionedDirClones},
+    error_behavior::ErrorBehavior,
+    fs,
+    path::HashedAbsolutePathRef,
+};
 
 #[derive(Debug, Clone, Deref, Default)]
 pub struct Paths(Vec<PathBuf>);
 
 impl Paths {
-    pub fn new(inner: Vec<PathBuf>) -> Self { Self(inner) }
-    pub fn into_set(self) -> PathSet { self.into() }
+    pub fn new(inner: Vec<PathBuf>) -> Self {
+        Self(inner)
+    }
+    pub fn into_set(self) -> PathSet {
+        self.into()
+    }
 }
 
 impl IntoIterator for Paths {
@@ -78,7 +92,7 @@ impl FromIterator<PathBuf> for Paths {
     }
 }
 
-impl<'a> From<PathRefs<'a>> for Paths {
+impl From<PathRefs<'_>> for Paths {
     fn from(path_refs: PathRefs) -> Self {
         Self::from_iter(path_refs.into_iter().map(ToOwned::to_owned))
     }
@@ -88,8 +102,9 @@ impl<'a> From<PathRefs<'a>> for Paths {
 pub struct PathRefs<'a>(Vec<&'a Path>);
 
 impl<'a> PathRefs<'a> {
-
-    pub fn new(inner: Vec<&'a Path>) -> Self { Self(inner) }
+    pub fn new(inner: Vec<&'a Path>) -> Self {
+        Self(inner)
+    }
 
     pub fn into_set(self) -> PathRefSet<'a> {
         self.into()
@@ -98,7 +113,6 @@ impl<'a> PathRefs<'a> {
     // pub fn to_paths(&self) -> Paths {
     //     Paths(self.iter().cloned().map(ToOwned::to_owned).collect())
     // }
-
 }
 
 impl<'a> From<&'a Path> for PathRefs<'a> {
@@ -180,7 +194,7 @@ impl FromIterator<PathBuf> for PathSet {
 
 impl From<Paths> for PathSet {
     fn from(paths: Paths) -> Self {
-        Self::from_iter(paths.into_iter())
+        Self::from_iter(paths)
     }
 }
 
@@ -201,7 +215,7 @@ impl<'a> FromIterator<&'a Path> for PathRefSet<'a> {
 
 impl<'a> From<PathRefs<'a>> for PathRefSet<'a> {
     fn from(path_refs: PathRefs<'a>) -> Self {
-        Self::from_iter(path_refs.into_iter())
+        Self::from_iter(path_refs)
     }
 }
 
@@ -218,7 +232,7 @@ pub trait TreeWithProgress<'a> {
 impl<'a, T> TreeWithProgress<'a> for T
 where
     T: 'a,
-    &'a T: IntoIterator<Item = &'a Path>
+    &'a T: IntoIterator<Item = &'a Path>,
 {
     fn tree_with_progress(&'a self, error_behavior: ErrorBehavior) -> anyhow::Result<fs::Tree> {
         let mut tree = fs::Tree::default();
@@ -226,14 +240,19 @@ where
         defer!(crossterm::execute!(io::stderr(), cursor::Show).unwrap());
         crossterm::execute!(io::stderr(), cursor::Hide).unwrap();
         let progress_func = |(dirs, files): (u64, u64)| {
-            bunt::eprint!("\r{$green}INFO{/$}  {$bold}>{/$} Listing files: {} dirs - {} files", dirs.to_formatted_string(&Locale::en), files.to_formatted_string(&Locale::en));
+            bunt::eprint!(
+                "\r{$green}INFO{/$}  {$bold}>{/$} Listing files: {} dirs - {} files",
+                dirs.to_formatted_string(&Locale::en),
+                files.to_formatted_string(&Locale::en)
+            );
             io::stderr().flush().unwrap();
         };
         let mut progress_display = CallRateLimiter::new(0.1, progress_func);
         for path in self.into_iter() {
-            let (dir_count, file_count) = tree.extend_with_progress(path, error_behavior,
-                |dir_count, file_count| progress_display.call((dir_count, file_count))
-            )?;
+            let (dir_count, file_count) =
+                tree.extend_with_progress(path, error_behavior, |dir_count, file_count| {
+                    progress_display.call((dir_count, file_count))
+                })?;
             total_dir_count += dir_count;
             total_file_count += file_count;
         }
@@ -253,9 +272,18 @@ pub struct CloneStats {
 }
 
 impl CloneStats {
-
-    pub fn new(total_count: usize, total_size: u64, reclaimable_count: usize, reclaimable_size: u64) -> Self {
-        Self { total_count, total_size, reclaimable_count, reclaimable_size }
+    pub fn new(
+        total_count: usize,
+        total_size: u64,
+        reclaimable_count: usize,
+        reclaimable_size: u64,
+    ) -> Self {
+        Self {
+            total_count,
+            total_size,
+            reclaimable_count,
+            reclaimable_size,
+        }
     }
 
     pub fn total_size_human(&self) -> Size {
@@ -265,57 +293,85 @@ impl CloneStats {
     pub fn reclaimable_size_human(&self) -> Size {
         Size::from_bytes(self.reclaimable_size)
     }
-
 }
 
 pub trait Clones<'a> {
-    fn clones(&'a self, recursive: bool, clones_db: &'a ClonesDB) -> (DirCloneFilesStats, PathRefs<'a>);
-    fn inside_clones(&'a self, recursive: bool, clones_db: &'a ClonesDB) -> (CloneStats, PathRefs<'a>);
-    fn clone_groups(&'a self, recursive: bool, clones_db: &'a ClonesDB) -> Vec<PartitionedDirClones>;
+    fn clones(
+        &'a self,
+        recursive: bool,
+        clones_db: &'a ClonesDB,
+    ) -> (DirCloneFilesStats, PathRefs<'a>);
+    fn inside_clones(
+        &'a self,
+        recursive: bool,
+        clones_db: &'a ClonesDB,
+    ) -> (CloneStats, PathRefs<'a>);
+    fn clone_groups(
+        &'a self,
+        recursive: bool,
+        clones_db: &'a ClonesDB,
+    ) -> Vec<PartitionedDirClones<'a>>;
 }
 
-impl<'a, T> Clones<'a> for T where T: 'a, &'a T: IntoIterator<Item = &'a Path> {
-
-    fn clones(&'a self, recursive: bool, clones_db: &'a ClonesDB) -> (DirCloneFilesStats, PathRefs<'a>) {
+impl<'a, T> Clones<'a> for T
+where
+    T: 'a,
+    &'a T: IntoIterator<Item = &'a Path>,
+{
+    fn clones(
+        &'a self,
+        recursive: bool,
+        clones_db: &'a ClonesDB,
+    ) -> (DirCloneFilesStats, PathRefs<'a>) {
         let mut stats = DirCloneFilesStats::default();
-        let clones = self.into_iter().flat_map(|path|
-            if path.is_dir() {
-                let clones = clones_db.dir_clone_files(path, recursive);
-                stats += *clones.stats();
-                clones.into_iter().map(|c| c.inner()).collect()
-            } else if path.is_file() && clones_db.file_is_a_clone(path) {
-                path.into()
-            } else {
-                PathRefs::default()
-            }
-        ).unique().collect();
+        let clones = self
+            .into_iter()
+            .flat_map(|path| {
+                if path.is_dir() {
+                    let clones = clones_db.dir_clone_files(path, recursive);
+                    stats += *clones.stats();
+                    clones.into_iter().map(|c| c.inner()).collect()
+                } else if path.is_file() && clones_db.file_is_a_clone(path) {
+                    path.into()
+                } else {
+                    PathRefs::default()
+                }
+            })
+            .unique()
+            .collect();
         (stats, clones)
     }
 
-    fn inside_clones(&'a self, recursive: bool, clones_db: &'a ClonesDB) -> (CloneStats, PathRefs<'a>) {
+    fn inside_clones(
+        &'a self,
+        recursive: bool,
+        clones_db: &'a ClonesDB,
+    ) -> (CloneStats, PathRefs<'a>) {
         let mut stats = CloneStats::default();
-        let clones = self.clone_groups(recursive, clones_db).iter().filter_map(|group|
-            (group.inside().len() > 1).then(|| {
+        let clones = self
+            .clone_groups(recursive, clones_db)
+            .iter()
+            .filter(|&group| (group.inside().len() > 1))
+            .flat_map(|group| {
                 let inside = group.inside();
                 stats.total_count += inside.total_count();
                 stats.total_size += inside.total_size();
                 stats.reclaimable_count += inside.reclaimable_count();
                 stats.reclaimable_size += inside.reclaimable_size();
-                inside
-                    .iter()
-                    .map(|path| path.inner())
-                    .collect_vec()
+                inside.iter().map(|path| path.inner()).collect_vec()
             })
-        ).flatten().collect();
+            .collect();
         (stats, clones)
     }
 
-    fn clone_groups(&'a self, recursive: bool, clones_db: &'a ClonesDB) -> Vec<PartitionedDirClones<'a>> {
-        self
-            .into_iter()
+    fn clone_groups(
+        &'a self,
+        recursive: bool,
+        clones_db: &'a ClonesDB,
+    ) -> Vec<PartitionedDirClones<'a>> {
+        self.into_iter()
             .filter(|path| path.is_dir())
             .flat_map(|dir| clones_db.dir_clone_groups(dir, recursive))
             .collect()
     }
-
 }

@@ -63,7 +63,7 @@ pub struct CloneRefGroup<'a> {
     files: HashedAbsolutePathRefSet<'a>
 }
 
-impl<'a> CloneGroupFileCountAndSize for CloneRefGroup<'a> {
+impl CloneGroupFileCountAndSize for CloneRefGroup<'_> {
     fn file_size(&self) -> u64 {
         self.file_size
     }
@@ -129,7 +129,7 @@ pub struct FileClones<'a> {
     clones: HashedAbsolutePathRefSet<'a>
 }
 
-impl<'a> FileClones<'a> {
+impl FileClones<'_> {
     pub fn reclaimable_size(&self) -> u64 {
         self.clones.len() as u64 * self.file_size
     }
@@ -287,9 +287,8 @@ impl CloneGroups {
     pub fn file_clones_hap<P: AsRef<HashedAbsolutePath>>(&self, file: P) -> Option<FileClones> {
         let file = file.as_ref();
         let ref_group = self.borrow_files().get(file.as_path())?;
-        let clones = ref_group.files.iter().cloned().filter(|ifile|
-            *ifile != file.to_absolute_path_ref()
-        ).collect();
+        let clones = ref_group.files.iter().filter(|&ifile|
+            *ifile != file.to_absolute_path_ref()).cloned().collect();
         Some(FileClones::new(ref_group.file_size, clones))
     }
 
@@ -478,7 +477,7 @@ impl FromIterator<(u64, Vec<HashedAbsolutePath>)> for CloneGroups {
     fn from_iter<T: IntoIterator<Item = (u64, Vec<HashedAbsolutePath>)>>(iter: T) -> Self {
         Self::new(
             iter.into_iter().map(|(file_size, files)| {
-                let files = HashedAbsolutePathSet::from_iter(files.into_iter());
+                let files = HashedAbsolutePathSet::from_iter(files);
                 CloneGroup::from_parts(file_size, files).unwrap()
             }).collect(),
             |groups| {
@@ -502,7 +501,7 @@ impl FromIterator<(u64, Vec<HashedAbsolutePath>)> for CloneGroups {
 
 impl From<Vec<(u64, Vec<HashedAbsolutePath>)>> for CloneGroups {
     fn from(clone_groups: Vec<(u64, Vec<HashedAbsolutePath>)>) -> Self {
-        Self::from_iter(clone_groups.into_iter())
+        Self::from_iter(clone_groups)
     }
 }
 

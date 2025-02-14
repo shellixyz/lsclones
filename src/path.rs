@@ -1,5 +1,9 @@
-
-use std::{path::{PathBuf, Path}, fmt::Display, collections::BTreeSet, hash::Hash};
+use std::{
+    collections::BTreeSet,
+    fmt::Display,
+    hash::Hash,
+    path::{Path, PathBuf},
+};
 
 use anyhow::anyhow;
 use derive_more::{Deref, DerefMut, IntoIterator};
@@ -9,17 +13,24 @@ use path_absolutize::Absolutize;
 use crate::hash::HashValue;
 
 fn parent_and_comps_hashes(path: impl AsRef<Path>) -> (Option<u64>, Vec<u64>) {
-    let comps = path.as_ref().components()
-        .fold(vec![], |mut comps, comp| {
-            match comps.last() {
-                None => comps.push(PathBuf::from(comp.as_os_str())),
-                Some(last) => comps.push(last.join(comp.as_os_str())),
-            }
-            comps
-        });
+    let comps = path.as_ref().components().fold(vec![], |mut comps, comp| {
+        match comps.last() {
+            None => comps.push(PathBuf::from(comp.as_os_str())),
+            Some(last) => comps.push(last.join(comp.as_os_str())),
+        }
+        comps
+    });
 
-    let mut comp_hashes = comps.iter().skip(1).map(HashValue::hash_value).collect::<Vec<_>>();
-    let parent_hash = if comp_hashes.len() > 1 { Some(comp_hashes[comp_hashes.len() - 2]) } else { None };
+    let mut comp_hashes = comps
+        .iter()
+        .skip(1)
+        .map(HashValue::hash_value)
+        .collect::<Vec<_>>();
+    let parent_hash = if comp_hashes.len() > 1 {
+        Some(comp_hashes[comp_hashes.len() - 2])
+    } else {
+        None
+    };
     comp_hashes.sort();
     (parent_hash, comp_hashes)
 }
@@ -62,7 +73,12 @@ impl From<PathBuf> for HashedAbsolutePath {
         let path = path_buf.absolutize().unwrap().to_path_buf();
         let hash = path.hash_value();
         let (parent_hash, comp_hashes) = parent_and_comps_hashes(&path);
-        Self { path, hash, parent_hash, comp_hashes }
+        Self {
+            path,
+            hash,
+            parent_hash,
+            comp_hashes,
+        }
     }
 }
 
@@ -85,23 +101,26 @@ impl From<&Path> for HashedAbsolutePath {
 }
 
 impl HashedAbsolutePath {
-
     pub fn to_absolute_path_ref(&self) -> HashedAbsolutePathRef {
         HashedAbsolutePathRef::from(self)
     }
 
     pub fn starts_with(&self, path: impl AsRef<Path>) -> anyhow::Result<bool> {
         let path = path.as_ref();
-        if ! path.is_absolute() {
-            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()))
+        if !path.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()));
         }
-        if path.as_os_str() == "/" { return Ok(true); }
+        if path.as_os_str() == "/" {
+            return Ok(true);
+        }
         Ok(self.comp_hash_matches(path.hash_value()))
     }
 
     pub fn starts_with_hap(&self, path: impl AsRef<HashedAbsolutePath>) -> bool {
         let path = path.as_ref();
-        if path.as_os_str() == "/" { return true; }
+        if path.as_os_str() == "/" {
+            return true;
+        }
         self.comp_hash_matches(path.hash)
     }
 
@@ -111,14 +130,13 @@ impl HashedAbsolutePath {
 
     pub fn parent_is(&self, path: impl AsRef<Path>) -> anyhow::Result<bool> {
         let path = path.as_ref();
-        if ! path.is_absolute() {
-            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()))
+        if !path.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()));
         }
         match &self.parent_hash {
             Some(parent_hash) => Ok(*parent_hash == path.hash_value()),
             None => Ok(path.as_os_str() == "/"),
         }
-
     }
 
     pub fn parent_is_hap(&self, path: impl AsRef<Self>) -> bool {
@@ -127,7 +145,6 @@ impl HashedAbsolutePath {
             None => path.as_ref().as_os_str() == "/",
         }
     }
-
 }
 
 impl AsRef<HashedAbsolutePath> for HashedAbsolutePath {
@@ -174,7 +191,7 @@ impl PartialEq for HashedAbsolutePath {
 
 impl PartialOrd for HashedAbsolutePath {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.path.partial_cmp(&other.path)
+        Some(self.path.cmp(&other.path))
     }
 }
 
@@ -203,12 +220,18 @@ pub struct HashedAbsolutePathRef<'a> {
 }
 
 impl<'a> HashedAbsolutePathRef<'a> {
-
     pub fn new(path: &'a Path) -> anyhow::Result<Self> {
-        if ! path.is_absolute() { return Err(anyhow!("path is not absolute: {}", path.to_string_lossy())) }
+        if !path.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()));
+        }
         let hash = path.hash_value();
         let (parent_hash, comp_hashes) = parent_and_comps_hashes(path);
-        Ok(Self { path, hash, parent_hash, comp_hashes })
+        Ok(Self {
+            path,
+            hash,
+            parent_hash,
+            comp_hashes,
+        })
     }
 
     pub fn inner(&self) -> &'a Path {
@@ -217,16 +240,20 @@ impl<'a> HashedAbsolutePathRef<'a> {
 
     pub fn starts_with(&self, path: impl AsRef<Path>) -> anyhow::Result<bool> {
         let path = path.as_ref();
-        if ! path.is_absolute() {
-            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()))
+        if !path.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()));
         }
-        if path.as_os_str() == "/" { return Ok(true); }
+        if path.as_os_str() == "/" {
+            return Ok(true);
+        }
         Ok(self.comp_hash_matches(path.hash_value()))
     }
 
     pub fn starts_with_hashed_path(&self, path: impl AsRef<HashedAbsolutePath>) -> bool {
         let path = path.as_ref();
-        if path.as_os_str() == "/" { return true; }
+        if path.as_os_str() == "/" {
+            return true;
+        }
         self.comp_hash_matches(path.hash)
     }
 
@@ -236,8 +263,8 @@ impl<'a> HashedAbsolutePathRef<'a> {
 
     pub fn parent_is(&self, path: impl AsRef<Path>) -> anyhow::Result<bool> {
         let path = path.as_ref();
-        if ! path.is_absolute() {
-            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()))
+        if !path.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()));
         }
         match &self.parent_hash {
             Some(parent_hash) => Ok(*parent_hash == path.hash_value()),
@@ -251,7 +278,6 @@ impl<'a> HashedAbsolutePathRef<'a> {
             None => path.as_ref().as_os_str() == "/",
         }
     }
-
 }
 
 impl<'a> AsRef<HashedAbsolutePathRef<'a>> for HashedAbsolutePathRef<'a> {
@@ -260,7 +286,7 @@ impl<'a> AsRef<HashedAbsolutePathRef<'a>> for HashedAbsolutePathRef<'a> {
     }
 }
 
-impl<'a> AsRef<Path> for HashedAbsolutePathRef<'a> {
+impl AsRef<Path> for HashedAbsolutePathRef<'_> {
     fn as_ref(&self) -> &Path {
         self.path
     }
@@ -270,10 +296,17 @@ impl<'a> TryFrom<&'a Path> for HashedAbsolutePathRef<'a> {
     type Error = anyhow::Error;
 
     fn try_from(path: &'a Path) -> Result<Self, Self::Error> {
-        if ! path.is_absolute() { return Err(anyhow!("path is not absolute: {}", path.to_string_lossy())) }
+        if !path.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", path.to_string_lossy()));
+        }
         let hash = path.hash_value();
         let (parent_hash, comp_hashes) = parent_and_comps_hashes(path);
-        Ok(Self { path, hash, parent_hash, comp_hashes })
+        Ok(Self {
+            path,
+            hash,
+            parent_hash,
+            comp_hashes,
+        })
     }
 }
 
@@ -288,49 +321,49 @@ impl<'a> From<&'a HashedAbsolutePath> for HashedAbsolutePathRef<'a> {
     }
 }
 
-impl<'a> Hash for HashedAbsolutePathRef<'a> {
+impl Hash for HashedAbsolutePathRef<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.hash.hash(state);
     }
 }
 
-impl<'a> HashedPath for HashedAbsolutePathRef<'a> {
+impl HashedPath for HashedAbsolutePathRef<'_> {
     fn path_hash(&self) -> u64 {
         self.hash
     }
 }
 
-impl<'a> AsPath for HashedAbsolutePathRef<'a> {
+impl AsPath for HashedAbsolutePathRef<'_> {
     fn as_path(&self) -> &Path {
         self.path
     }
 }
 
-impl<'a> HashedParentCompsPath for HashedAbsolutePathRef<'a> {
+impl HashedParentCompsPath for HashedAbsolutePathRef<'_> {
     fn comp_hashes(&self) -> &Vec<u64> {
         &self.comp_hashes
     }
 }
 
-impl<'a> PartialEq for HashedAbsolutePathRef<'a> {
+impl PartialEq for HashedAbsolutePathRef<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.hash == other.hash
     }
 }
 
-impl<'a> PartialOrd for HashedAbsolutePathRef<'a> {
+impl PartialOrd for HashedAbsolutePathRef<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.path.partial_cmp(other.path)
+        Some(self.path.cmp(other.path))
     }
 }
 
-impl<'a> Ord for HashedAbsolutePathRef<'a> {
+impl Ord for HashedAbsolutePathRef<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.path.cmp(other.path)
     }
 }
 
-impl<'a> Display for HashedAbsolutePathRef<'a> {
+impl Display for HashedAbsolutePathRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.path.to_string_lossy())
     }
@@ -340,15 +373,14 @@ impl<'a> Display for HashedAbsolutePathRef<'a> {
 pub struct HashedAbsolutePathSet(BTreeSet<HashedAbsolutePath>);
 
 impl HashedAbsolutePathSet {
-
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn contains_parent_of(&self, base: impl AsRef<Path>) -> anyhow::Result<bool> {
         let base = base.as_ref();
-        if ! base.is_absolute() {
-            return Err(anyhow!("path is not absolute: {}", base.to_string_lossy()))
+        if !base.is_absolute() {
+            return Err(anyhow!("path is not absolute: {}", base.to_string_lossy()));
         }
         Ok(self.iter().any(|path| path.starts_with(base).unwrap()))
     }
@@ -362,13 +394,15 @@ impl Clone for HashedAbsolutePathSet {
 
 impl FromIterator<PathBuf> for HashedAbsolutePathSet {
     fn from_iter<T: IntoIterator<Item = PathBuf>>(iter: T) -> Self {
-        Self(BTreeSet::from_iter(iter.into_iter().map(HashedAbsolutePath::from)))
+        Self(BTreeSet::from_iter(
+            iter.into_iter().map(HashedAbsolutePath::from),
+        ))
     }
 }
 
 impl FromIterator<HashedAbsolutePath> for HashedAbsolutePathSet {
     fn from_iter<T: IntoIterator<Item = HashedAbsolutePath>>(iter: T) -> Self {
-        Self(BTreeSet::from_iter(iter.into_iter()))
+        Self(BTreeSet::from_iter(iter))
     }
 }
 
@@ -381,7 +415,7 @@ impl From<&[PathBuf]> for HashedAbsolutePathSet {
 #[derive(Debug, Deref, DerefMut, IntoIterator, Default)]
 pub struct HashedAbsolutePathRefSet<'a>(BTreeSet<HashedAbsolutePathRef<'a>>);
 
-impl<'a> Clone for HashedAbsolutePathRefSet<'a> {
+impl Clone for HashedAbsolutePathRefSet<'_> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
@@ -389,7 +423,7 @@ impl<'a> Clone for HashedAbsolutePathRefSet<'a> {
 
 impl<'a> FromIterator<HashedAbsolutePathRef<'a>> for HashedAbsolutePathRefSet<'a> {
     fn from_iter<T: IntoIterator<Item = HashedAbsolutePathRef<'a>>>(iter: T) -> Self {
-        Self(BTreeSet::from_iter(iter.into_iter()))
+        Self(BTreeSet::from_iter(iter))
     }
 }
 
@@ -414,7 +448,6 @@ impl<'a> IntoIterator for &'a HashedAbsolutePathRefSet<'a> {
         self.0.iter()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -461,6 +494,5 @@ mod tests {
             assert!(x < y);
             assert!(y > x);
         }
-
     }
 }

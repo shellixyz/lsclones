@@ -116,7 +116,7 @@ impl FSTree {
 
                     if std::ptr::eq(clone_dir, *i_clone_dir) { return true; }
 
-                    let i_clone_dir_path = HashedAbsolutePath::from(i_clone_dir.path.clone());
+                    let i_clone_dir_path = HashedAbsolutePath::from(i_clone_dir.path);
                     let has_missing_files = clone_dir.files_iter().any(|file|
                         match clones_db.clone_group(file) {
                             Some(group) =>
@@ -128,9 +128,8 @@ impl FSTree {
                     if has_missing_files {
                         false
                     } else {
-                        let clone_dir_files = clone_dir.clones.iter().map(|(_, crg)|
-                            crg.iter().map(|path| path.inner().to_owned()
-                        )).flatten().collect::<PathSet>();
+                        let clone_dir_files = clone_dir.clones.values().flat_map(|crg| crg.iter().map(|path| path.inner().to_owned()
+                        )).collect::<PathSet>();
                         let i_clone_dir_files = dir::files_rec(i_clone_dir.path).into_set();
                         let has_extra_files = i_clone_dir_files.difference(&clone_dir_files).next().is_some();
                         !has_extra_files
@@ -162,21 +161,21 @@ pub struct CloneDir<'a> {
     clones: HashMap<&'a Path, CloneRefGroup<'a>>
 }
 
-impl<'a> PartialEq for CloneDir<'a> {
+impl PartialEq for CloneDir<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
     }
 }
 
-impl<'a> Eq for CloneDir<'a> {}
+impl Eq for CloneDir<'_> {}
 
-impl<'a> Hash for CloneDir<'a> {
+impl Hash for CloneDir<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.path.hash(state);
     }
 }
 
-impl<'a> Display for CloneDir<'a> {
+impl Display for CloneDir<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.path.to_string_lossy())
     }
@@ -197,7 +196,7 @@ impl<'a> CloneDir<'a> {
     pub fn file_count(&self) -> usize { self.clones.len() }
 
     pub fn size_bytes(&self) -> u64 {
-        self.clones.iter().map(|(_, group)| group.file_size()).sum()
+        self.clones.values().map(|group| group.file_size()).sum()
     }
 
     pub fn deep_path_rel(&self) -> Option<&'a Path> {
@@ -210,7 +209,7 @@ impl<'a> CloneDir<'a> {
 #[into_iterator(owned, ref)]
 pub struct CloneDirs<'a>(Vec<CloneDir<'a>>);
 
-impl<'a> CloneDirs<'a> {
+impl CloneDirs<'_> {
 
     pub fn file_count(&self) -> usize {
         self.iter().map(CloneDir::file_count).sum()
@@ -228,7 +227,7 @@ impl<'a> CloneDirs<'a> {
 
 impl<'a> FromIterator<CloneDir<'a>> for CloneDirs<'a> {
     fn from_iter<T: IntoIterator<Item = CloneDir<'a>>>(iter: T) -> Self {
-        CloneDirs(Vec::from_iter(iter.into_iter()))
+        CloneDirs(Vec::from_iter(iter))
     }
 }
 
@@ -236,7 +235,7 @@ impl<'a> FromIterator<CloneDir<'a>> for CloneDirs<'a> {
 #[into_iterator(owned, ref)]
 pub struct CloneDirGroup<'a>(Vec<CloneDir<'a>>);
 
-impl<'a> CloneDirGroup<'a> {
+impl CloneDirGroup<'_> {
 
     pub fn ref_dirs(&self) -> Vec<RefDir> {
         if self.0.is_empty() { return vec![]; }
@@ -262,7 +261,7 @@ impl<'a> CloneDirGroup<'a> {
 
     // minimum as if there is no clone from these directories outside of them
     pub fn minimum_reclaimable_size(&self) -> u64 {
-        if self.0.len() < 1 { return 0; }
+        if self.0.is_empty() { return 0; }
         (self.0.len() - 1) as u64 * self.first().unwrap().size_bytes()
     }
 
@@ -271,7 +270,7 @@ impl<'a> CloneDirGroup<'a> {
 #[derive(Debug, Deref, IntoIterator)]
 pub struct CloneDirGroups<'a>(Vec<CloneDirGroup<'a>>);
 
-impl<'a> CloneDirGroups<'a> {
+impl CloneDirGroups<'_> {
 
     pub fn dir_count(&self) -> usize {
         self.iter().map(|group| group.len()).sum()
@@ -359,7 +358,7 @@ pub struct RefDir<'a> {
     path: HashedAbsolutePath,
 }
 
-impl<'a> Display for RefDir<'a> {
+impl Display for RefDir<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.path.to_string_lossy())
     }

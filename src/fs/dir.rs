@@ -32,7 +32,7 @@ pub struct DirWalker {
 
 impl DirWalker {
     pub fn new(dir: impl Into<PathBuf>, error_behavior: ErrorBehavior) -> Self {
-        Self { dirs_to_process: VecDeque::from_iter(Some(dir.into()).into_iter()), current_dir_entries: vec![], error_behavior }
+        Self { dirs_to_process: VecDeque::from_iter(Some(dir.into())), current_dir_entries: vec![], error_behavior }
     }
 }
 

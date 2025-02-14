@@ -1,17 +1,14 @@
-
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, Args};
-use getset::{Getters, CopyGetters};
+use clap::{Args, Parser, Subcommand};
+use getset::{CopyGetters, Getters};
 use lazy_static::lazy_static;
 
-use crate::{log_level::LogLevel, error_behavior::ErrorBehavior, paths::PathRefs};
-
+use crate::{error_behavior::ErrorBehavior, log_level::LogLevel, paths::PathRefs};
 
 #[derive(Parser, Getters, CopyGetters)]
 #[clap(author, version, about, long_about = None)]
 pub struct Cli {
-
     /// clones list file in JSON format produced by the `fclones` utility
     #[clap(short, long, env = "CLONES_LIST")]
     #[getset(get = "pub")]
@@ -33,7 +30,6 @@ pub struct Cli {
 #[derive(Debug, Args, CopyGetters)]
 #[getset(get_copy = "pub")]
 pub struct CommonOptions {
-
     #[clap(short, long, global = true)]
     recursive: bool,
 
@@ -44,7 +40,6 @@ pub struct CommonOptions {
     /// display stats about what is listed
     #[clap(short = 'S', long, global = true)]
     stats: bool,
-
 }
 
 lazy_static! {
@@ -88,7 +83,7 @@ pub struct DirsCommandPaths {
 
 fn dir_parser(path_str: &str) -> Result<PathBuf, &'static str> {
     let path = PathBuf::from(path_str);
-    if ! path.is_dir() {
+    if !path.is_dir() {
         return Err("not a directory");
     }
     Ok(path)
@@ -102,7 +97,6 @@ impl CommandArgsInnerPaths for DirsCommandPaths {
 
 #[derive(Subcommand)]
 pub enum Commands {
-
     /// list clone or unique dirs
     ///
     /// clone dirs: dirs only containing files which have clones outside of it
@@ -169,5 +163,4 @@ pub enum Commands {
         #[clap(flatten)]
         paths: FilesCommandPaths,
     },
-
 }

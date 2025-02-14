@@ -1,20 +1,28 @@
-
-use std::{collections::{hash_map, BTreeMap, HashMap}, path::{Path, self}, fmt::Debug, io::{self, Write}};
+use std::{
+    collections::{hash_map, BTreeMap, HashMap},
+    fmt::Debug,
+    io::{self, Write},
+    path::{self, Path},
+};
 
 use crossterm::cursor;
-use derive_more::{Deref, Constructor, IntoIterator, Add, AddAssign};
-use getset::{Getters, CopyGetters};
+use derive_more::{Add, AddAssign, Constructor, Deref, IntoIterator};
+use getset::{CopyGetters, Getters};
 use itertools::Itertools;
+use num_format::{Locale, ToFormattedString};
 use ouroboros::self_referencing;
 use path_absolutize::Absolutize;
 use scopeguard::defer;
 use size::Size;
-use num_format::{ToFormattedString, Locale};
 
-use crate::{path::{HashedAbsolutePathSet, HashedAbsolutePath, HashedAbsolutePathRefSet, HashedAbsolutePathRef}, call_rate_limiter::CallRateLimiter};
+use crate::{
+    call_rate_limiter::CallRateLimiter,
+    path::{
+        HashedAbsolutePath, HashedAbsolutePathRef, HashedAbsolutePathRefSet, HashedAbsolutePathSet,
+    },
+};
 
 use super::File;
-
 
 pub trait CloneGroupFileCountAndSize {
     fn file_size(&self) -> u64;
@@ -31,7 +39,8 @@ pub trait CloneGroupReclaimable {
 pub struct CloneGroup {
     #[getset(get_copy = "pub")]
     file_size: u64,
-    #[deref] #[getset(get = "pub")]
+    #[deref]
+    #[getset(get = "pub")]
     files: HashedAbsolutePathSet,
 }
 
@@ -59,8 +68,9 @@ impl CloneGroup {
 pub struct CloneRefGroup<'a> {
     #[getset(get_copy = "pub")]
     file_size: u64,
-    #[deref] #[getset(get = "pub")]
-    files: HashedAbsolutePathRefSet<'a>
+    #[deref]
+    #[getset(get = "pub")]
+    files: HashedAbsolutePathRefSet<'a>,
 }
 
 impl CloneGroupFileCountAndSize for CloneRefGroup<'_> {
@@ -78,7 +88,6 @@ impl CloneGroupFileCountAndSize for CloneRefGroup<'_> {
 }
 
 impl<'a> CloneRefGroup<'a> {
-
     pub fn from_parts(file_size: u64, files: HashedAbsolutePathRefSet<'a>) -> Self {
         Self { file_size, files }
     }
@@ -92,7 +101,9 @@ impl<'a> CloneRefGroup<'a> {
     }
 
     pub fn reclaimable_count(&self) -> usize {
-        if self.is_empty() { return 0; }
+        if self.is_empty() {
+            return 0;
+        }
         self.files.len() - 1
     }
 
@@ -102,17 +113,21 @@ impl<'a> CloneRefGroup<'a> {
 
     pub fn filter_out_dir(&self, dir: impl AsRef<Path>) -> CloneRefGroup {
         let dir = HashedAbsolutePath::from(dir.as_ref());
-        let files = self.files.iter().filter(|ifile|
-            !ifile.starts_with_hashed_path(&dir)
-        ).cloned().collect();
+        let files = self
+            .files
+            .iter()
+            .filter(|ifile| !ifile.starts_with_hashed_path(&dir))
+            .cloned()
+            .collect();
         CloneRefGroup::from_parts(self.file_size, files)
     }
-
 }
 
 impl<T: CloneGroupFileCountAndSize> CloneGroupReclaimable for T {
     fn reclaimable_count(&self) -> usize {
-        if self.total_count() == 0 { return 0; }
+        if self.total_count() == 0 {
+            return 0;
+        }
         self.total_count() - 1
     }
 
@@ -126,7 +141,7 @@ pub struct FileClones<'a> {
     #[getset(get_copy = "pub")]
     file_size: u64,
     #[deref]
-    clones: HashedAbsolutePathRefSet<'a>
+    clones: HashedAbsolutePathRefSet<'a>,
 }
 
 impl FileClones<'_> {
@@ -138,9 +153,11 @@ impl FileClones<'_> {
 #[self_referencing]
 pub struct CloneGroups {
     groups: Vec<CloneGroup>,
-    #[borrows(groups)] #[covariant]
+    #[borrows(groups)]
+    #[covariant]
     ref_groups: Vec<CloneRefGroup<'this>>,
-    #[borrows(ref_groups)] #[covariant]
+    #[borrows(ref_groups)]
+    #[covariant]
     files: BTreeMap<&'this path::Path, &'this CloneRefGroup<'this>>,
 }
 
@@ -232,7 +249,8 @@ impl<'a> Iterator for PathsClonesIter<'a> {
         loop {
             if let Some(path_clones_iter) = &mut self.path_clones_iter {
                 if let Some(clone) = path_clones_iter.next() {
-                    if let hash_map::Entry::Vacant(entry) = self.returned_hashes.entry(clone.hash()) {
+                    if let hash_map::Entry::Vacant(entry) = self.returned_hashes.entry(clone.hash())
+                    {
                         entry.insert(());
                         return Some(clone);
                     } else {
@@ -243,7 +261,8 @@ impl<'a> Iterator for PathsClonesIter<'a> {
 
             // path_clones_iter is None or next() returned None
             if let Some(path) = self.paths.get(self.path_index) {
-                self.path_clones_iter = Some(self.clone_groups.path_clones_iter_hap(path, self.recursive));
+                self.path_clones_iter =
+                    Some(self.clone_groups.path_clones_iter_hap(path, self.recursive));
                 self.path_index += 1;
             } else {
                 return None;
@@ -262,17 +281,15 @@ impl<'a> Iterator for FileClonesIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.iter {
-            Some(iter) =>
-                iter.find(|file| file.hash() != self.orig_file_hash),
+            Some(iter) => iter.find(|file| file.hash() != self.orig_file_hash),
             None => None,
         }
     }
 }
 
 impl CloneGroups {
-
     pub fn file_is_a_clone<P: AsRef<Path>>(&self, file: P) -> bool {
-        let file = file.as_ref().absolutize().unwrap();//.to_path_buf();
+        let file = file.as_ref().absolutize().unwrap(); //.to_path_buf();
         self.borrow_files().contains_key(file.as_ref())
     }
 
@@ -287,8 +304,12 @@ impl CloneGroups {
     pub fn file_clones_hap<P: AsRef<HashedAbsolutePath>>(&self, file: P) -> Option<FileClones> {
         let file = file.as_ref();
         let ref_group = self.borrow_files().get(file.as_path())?;
-        let clones = ref_group.files.iter().filter(|&ifile|
-            *ifile != file.to_absolute_path_ref()).cloned().collect();
+        let clones = ref_group
+            .files
+            .iter()
+            .filter(|&ifile| *ifile != file.to_absolute_path_ref())
+            .cloned()
+            .collect();
         Some(FileClones::new(ref_group.file_size, clones))
     }
 
@@ -299,49 +320,88 @@ impl CloneGroups {
     pub fn file_clones_iter_hap<P: AsRef<HashedAbsolutePath>>(&self, file: P) -> FileClonesIter {
         let file = file.as_ref();
         let ref_group = self.borrow_files().get(file.as_path());
-        FileClonesIter { iter: ref_group.map(|rg| rg.files.iter()), orig_file_hash: file.hash() }
+        FileClonesIter {
+            iter: ref_group.map(|rg| rg.files.iter()),
+            orig_file_hash: file.hash(),
+        }
     }
 
     pub fn files_iter(&self) -> CloneFilesIter {
-        CloneFilesIter { groups_iter: self.borrow_ref_groups().iter(), group_iter: None }
+        CloneFilesIter {
+            groups_iter: self.borrow_ref_groups().iter(),
+            group_iter: None,
+        }
     }
 
     pub fn dir_clone_files(&self, dir: impl AsRef<Path>, recursive: bool) -> DirCloneFiles {
         self.dir_clone_files_hap(HashedAbsolutePath::from(dir.as_ref()), recursive)
     }
 
-    pub fn dir_clone_files_hap(&self, dir: impl AsRef<HashedAbsolutePath>, recursive: bool) -> DirCloneFiles {
+    pub fn dir_clone_files_hap(
+        &self,
+        dir: impl AsRef<HashedAbsolutePath>,
+        recursive: bool,
+    ) -> DirCloneFiles {
         let dir_clone_groups = self.dir_clone_groups_hap(dir, recursive);
-        let clone_files = dir_clone_groups.iter().map(|clones| clones.inside.files.clone()).collect();
+        let clone_files = dir_clone_groups
+            .iter()
+            .map(|clones| clones.inside.files.clone())
+            .collect();
         let (total_size, reclaimable_count, reclaimable_size) =
-            dir_clone_groups.iter().fold((0, 0, 0), |(t_size, r_count, r_size), clones| {
-                (
-                    t_size + clones.total_size(),
-                    r_count + clones.inside_reclaimable_count(),
-                    r_size + clones.inside_reclaimable_size()
-                )
-            });
+            dir_clone_groups
+                .iter()
+                .fold((0, 0, 0), |(t_size, r_count, r_size), clones| {
+                    (
+                        t_size + clones.total_size(),
+                        r_count + clones.inside_reclaimable_count(),
+                        r_size + clones.inside_reclaimable_size(),
+                    )
+                });
         DirCloneFiles {
-            stats: DirCloneFilesStats { total_size, reclaimable_count, reclaimable_size },
+            stats: DirCloneFilesStats {
+                total_size,
+                reclaimable_count,
+                reclaimable_size,
+            },
             clones: clone_files,
         }
     }
 
-    pub fn dir_clone_files_iter<P: AsRef<Path>>(&self, dir: P, recursive: bool) -> DirCloneFilesIter {
+    pub fn dir_clone_files_iter<P: AsRef<Path>>(
+        &self,
+        dir: P,
+        recursive: bool,
+    ) -> DirCloneFilesIter {
         self.dir_clone_files_iter_hap(HashedAbsolutePath::from(dir.as_ref()), recursive)
     }
 
-    pub fn dir_clone_files_iter_hap<P: AsRef<HashedAbsolutePath>>(&self, dir: P, recursive: bool) -> DirCloneFilesIter {
+    pub fn dir_clone_files_iter_hap<P: AsRef<HashedAbsolutePath>>(
+        &self,
+        dir: P,
+        recursive: bool,
+    ) -> DirCloneFilesIter {
         let dir = dir.as_ref();
-        let dir_hash = if dir.as_os_str() == "/" { None } else { Some(dir.hash()) };
-        DirCloneFilesIter { files_iter: self.files_iter(), dir_hash, recursive }
+        let dir_hash = if dir.as_os_str() == "/" {
+            None
+        } else {
+            Some(dir.hash())
+        };
+        DirCloneFilesIter {
+            files_iter: self.files_iter(),
+            dir_hash,
+            recursive,
+        }
     }
 
     pub fn path_clones_iter(&self, path: impl AsRef<Path>, recursive: bool) -> PathClonesIter {
         self.path_clones_iter_hap(HashedAbsolutePath::from(path.as_ref()), recursive)
     }
 
-    pub fn path_clones_iter_hap(&self, path: impl AsRef<HashedAbsolutePath>, recursive: bool) -> PathClonesIter {
+    pub fn path_clones_iter_hap(
+        &self,
+        path: impl AsRef<HashedAbsolutePath>,
+        recursive: bool,
+    ) -> PathClonesIter {
         let path = path.as_ref();
         if path.is_dir() {
             PathClonesIter::Dir(self.dir_clone_files_iter_hap(path, recursive))
@@ -352,11 +412,19 @@ impl CloneGroups {
         }
     }
 
-    pub fn paths_clones_iter<'a>(&self, paths: impl IntoIterator<Item = &'a str>, recursive: bool) -> PathsClonesIter {
+    pub fn paths_clones_iter<'a>(
+        &self,
+        paths: impl IntoIterator<Item = &'a str>,
+        recursive: bool,
+    ) -> PathsClonesIter {
         self.paths_clones_iter_hap(paths.into_iter().map(Into::into).collect_vec(), recursive)
     }
 
-    pub fn paths_clones_iter_hap(&self, paths: impl IntoIterator<Item = HashedAbsolutePath>, recursive: bool) -> PathsClonesIter {
+    pub fn paths_clones_iter_hap(
+        &self,
+        paths: impl IntoIterator<Item = HashedAbsolutePath>,
+        recursive: bool,
+    ) -> PathsClonesIter {
         PathsClonesIter {
             clone_groups: self,
             paths: paths.into_iter().collect(),
@@ -367,34 +435,54 @@ impl CloneGroups {
         }
     }
 
-    pub fn dir_clone_groups(&self, dir: impl AsRef<Path>, recursive: bool) -> Vec<PartitionedDirClones> {
+    pub fn dir_clone_groups(
+        &self,
+        dir: impl AsRef<Path>,
+        recursive: bool,
+    ) -> Vec<PartitionedDirClones> {
         self.dir_clone_groups_hap(HashedAbsolutePath::from(dir.as_ref()), recursive)
     }
 
-    pub fn dir_clone_groups_hap(&self, dir: impl AsRef<HashedAbsolutePath>, recursive: bool) -> Vec<PartitionedDirClones> {
+    pub fn dir_clone_groups_hap(
+        &self,
+        dir: impl AsRef<HashedAbsolutePath>,
+        recursive: bool,
+    ) -> Vec<PartitionedDirClones> {
         let ref_groups = self.borrow_ref_groups();
-        ref_groups.iter().filter_map(|group| {
+        ref_groups
+            .iter()
+            .filter_map(|group| {
+                let (inside_dir, outside_dir) = group
+                    .iter()
+                    .partition::<Vec<&HashedAbsolutePathRef>, _>(|file| {
+                        if recursive {
+                            file.starts_with_hashed_path(&dir)
+                        } else {
+                            file.parent_is_hap(&dir)
+                        }
+                    });
 
-            let (inside_dir, outside_dir) =
-                group.iter().partition::<Vec<&HashedAbsolutePathRef>, _>(|file|
-                    if recursive {
-                        file.starts_with_hashed_path(&dir)
-                    } else {
-                        file.parent_is_hap(&dir)
-                    }
-                );
-
-            (!inside_dir.is_empty()).then(|| {
-                let inside_dir = inside_dir.into_iter().cloned().collect::<HashedAbsolutePathRefSet>();
-                let inside_clone_group = CloneRefGroup::from_parts(group.file_size, inside_dir);
-                let outside_dir = outside_dir.into_iter().cloned().collect::<HashedAbsolutePathRefSet>();
-                let outside_clone_group = CloneRefGroup::from_parts(group.file_size, outside_dir);
-                PartitionedDirClones::new(group.file_size, inside_clone_group, outside_clone_group)
+                (!inside_dir.is_empty()).then(|| {
+                    let inside_dir = inside_dir
+                        .into_iter()
+                        .cloned()
+                        .collect::<HashedAbsolutePathRefSet>();
+                    let inside_clone_group = CloneRefGroup::from_parts(group.file_size, inside_dir);
+                    let outside_dir = outside_dir
+                        .into_iter()
+                        .cloned()
+                        .collect::<HashedAbsolutePathRefSet>();
+                    let outside_clone_group =
+                        CloneRefGroup::from_parts(group.file_size, outside_dir);
+                    PartitionedDirClones::new(
+                        group.file_size,
+                        inside_clone_group,
+                        outside_clone_group,
+                    )
+                })
             })
-
-        }).collect()
+            .collect()
     }
-
 }
 
 #[derive(Debug, Clone, Copy, CopyGetters, Default, Add, AddAssign)]
@@ -406,7 +494,6 @@ pub struct DirCloneFilesStats {
 }
 
 impl DirCloneFilesStats {
-
     pub fn total_size_human(&self) -> Size {
         Size::from_bytes(self.total_size)
     }
@@ -414,15 +501,15 @@ impl DirCloneFilesStats {
     pub fn reclaimable_size_human(&self) -> Size {
         Size::from_bytes(self.reclaimable_size)
     }
-
 }
 
 #[derive(Debug, Deref, IntoIterator, Getters)]
 pub struct DirCloneFiles<'a> {
     #[getset(get = "pub")]
     stats: DirCloneFilesStats,
-    #[deref] #[into_iterator]
-    clones: HashedAbsolutePathRefSet<'a>
+    #[deref]
+    #[into_iterator]
+    clones: HashedAbsolutePathRefSet<'a>,
 }
 
 #[derive(Debug, Getters, CopyGetters)]
@@ -436,9 +523,12 @@ pub struct PartitionedDirClones<'a> {
 }
 
 impl<'a> PartitionedDirClones<'a> {
-
     pub fn new(file_size: u64, inside: CloneRefGroup<'a>, outside: CloneRefGroup<'a>) -> Self {
-        Self { file_size, inside, outside }
+        Self {
+            file_size,
+            inside,
+            outside,
+        }
     }
 
     pub fn file_count(&self) -> usize {
@@ -451,7 +541,9 @@ impl<'a> PartitionedDirClones<'a> {
 
     pub fn reclaimable_size(&self) -> u64 {
         let file_count = self.file_count();
-        if file_count == 0 { return 0; }
+        if file_count == 0 {
+            return 0;
+        }
         (file_count as u64 - 1) * self.file_size
     }
 
@@ -470,21 +562,29 @@ impl<'a> PartitionedDirClones<'a> {
             self.inside.total_size()
         }
     }
-
 }
 
 impl FromIterator<(u64, Vec<HashedAbsolutePath>)> for CloneGroups {
     fn from_iter<T: IntoIterator<Item = (u64, Vec<HashedAbsolutePath>)>>(iter: T) -> Self {
         Self::new(
-            iter.into_iter().map(|(file_size, files)| {
-                let files = HashedAbsolutePathSet::from_iter(files);
-                CloneGroup::from_parts(file_size, files).unwrap()
-            }).collect(),
+            iter.into_iter()
+                .map(|(file_size, files)| {
+                    let files = HashedAbsolutePathSet::from_iter(files);
+                    CloneGroup::from_parts(file_size, files).unwrap()
+                })
+                .collect(),
             |groups| {
-                groups.iter().map(|group| {
-                    let files = group.files().iter().map(HashedAbsolutePathRef::from).collect();
-                    CloneRefGroup::from_parts(group.file_size, files)
-                }).collect()
+                groups
+                    .iter()
+                    .map(|group| {
+                        let files = group
+                            .files()
+                            .iter()
+                            .map(HashedAbsolutePathRef::from)
+                            .collect();
+                        CloneRefGroup::from_parts(group.file_size, files)
+                    })
+                    .collect()
             },
             |ref_groups| {
                 let mut files = BTreeMap::new();
@@ -494,7 +594,7 @@ impl FromIterator<(u64, Vec<HashedAbsolutePath>)> for CloneGroups {
                     }
                 }
                 files
-            }
+            },
         )
     }
 }
@@ -514,10 +614,12 @@ pub struct ClonesDB {
 }
 
 impl ClonesDB {
-
     /// reads clones database file in json format
     pub fn read_clones_file<P: AsRef<Path>>(path: P, prune: bool) -> anyhow::Result<Self> {
-        log::info!("Loading clones list file: {}", path.as_ref().to_string_lossy());
+        log::info!(
+            "Loading clones list file: {}",
+            path.as_ref().to_string_lossy()
+        );
         let file = File::open(path)?;
 
         if prune {
@@ -529,7 +631,12 @@ impl ClonesDB {
         if prune && scanned_paths.is_some() {
             let progress_func = |(index, total): (usize, usize)| {
                 let percent = index * 100 / total;
-                bunt::eprint!("\r{$green}INFO{/$}  {$bold}>{/$} Pruning scanned dirs list {} / {} ({}%)", index.to_formatted_string(&Locale::en), total.to_formatted_string(&Locale::en), percent);
+                bunt::eprint!(
+                    "\r{$green}INFO{/$}  {$bold}>{/$} Pruning scanned dirs list {} / {} ({}%)",
+                    index.to_formatted_string(&Locale::en),
+                    total.to_formatted_string(&Locale::en),
+                    percent
+                );
                 io::stderr().flush().unwrap();
             };
             let mut progress_display = CallRateLimiter::new(0.1, progress_func);
@@ -537,7 +644,9 @@ impl ClonesDB {
             let scanned_path_count = scanned_paths_inner.len();
             let mut scanned_paths_filtered = HashedAbsolutePathSet::default();
             for (index, file) in scanned_paths_inner.iter().enumerate() {
-                if file.is_file() { scanned_paths_filtered.insert(file.clone()); }
+                if file.is_file() {
+                    scanned_paths_filtered.insert(file.clone());
+                }
                 progress_display.call((index, scanned_path_count));
             }
             progress_display.call_unconditional((scanned_path_count, scanned_path_count));
@@ -548,7 +657,12 @@ impl ClonesDB {
         if prune {
             let progress_func = |(index, total): (usize, usize)| {
                 let percent = index * 100 / total;
-                bunt::eprint!("\r{$green}INFO{/$}  {$bold}>{/$} Pruning clone files list {} / {} ({}%)", index.to_formatted_string(&Locale::en), total.to_formatted_string(&Locale::en), percent);
+                bunt::eprint!(
+                    "\r{$green}INFO{/$}  {$bold}>{/$} Pruning clone files list {} / {} ({}%)",
+                    index.to_formatted_string(&Locale::en),
+                    total.to_formatted_string(&Locale::en),
+                    percent
+                );
                 io::stderr().flush().unwrap();
             };
             let mut progress_display = CallRateLimiter::new(0.1, progress_func);
@@ -558,7 +672,9 @@ impl ClonesDB {
             for (size, group) in clone_groups {
                 let mut group_filtered = vec![];
                 for file in group {
-                    if file.is_file() { group_filtered.push(file) }
+                    if file.is_file() {
+                        group_filtered.push(file)
+                    }
                     progress_display.call((index, file_count));
                     index += 1;
                 }
@@ -571,7 +687,10 @@ impl ClonesDB {
             clone_groups = clone_groups_filtered;
         }
 
-        Ok(Self { scanned_paths, clone_groups: CloneGroups::from(clone_groups) })
+        Ok(Self {
+            scanned_paths,
+            clone_groups: CloneGroups::from(clone_groups),
+        })
     }
 
     // /// returns an error if the specified path is not part of the directories scanned during the clones database's construction
@@ -581,5 +700,4 @@ impl ClonesDB {
     //     }
     //     Ok(())
     // }
-
 }

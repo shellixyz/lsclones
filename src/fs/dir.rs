@@ -1,12 +1,15 @@
-
-use std::{fs, os::unix::prelude::MetadataExt, path::{PathBuf, Path}, collections::VecDeque};
+use std::{
+    collections::VecDeque,
+    fs,
+    os::unix::prelude::MetadataExt,
+    path::{Path, PathBuf},
+};
 
 use anyhow::anyhow;
 
-use crate::{clones::db::ClonesDB, paths::Paths, error_behavior::ErrorBehavior};
+use crate::{clones::db::ClonesDB, error_behavior::ErrorBehavior, paths::Paths};
 
 use super::Tree;
-
 
 // pub fn files<P: AsRef<StdPath>>(path: P) -> anyhow::Result<Paths> {
 //     let entry_iter = fs::read_dir(&path).map_err(|error|
@@ -32,7 +35,11 @@ pub struct DirWalker {
 
 impl DirWalker {
     pub fn new(dir: impl Into<PathBuf>, error_behavior: ErrorBehavior) -> Self {
-        Self { dirs_to_process: VecDeque::from_iter(Some(dir.into())), current_dir_entries: vec![], error_behavior }
+        Self {
+            dirs_to_process: VecDeque::from_iter(Some(dir.into())),
+            current_dir_entries: vec![],
+            error_behavior,
+        }
     }
 }
 
@@ -52,45 +59,48 @@ impl Iterator for DirWalker {
                     Err(e) => match self.error_behavior {
                         Ignore => continue,
                         Display | Stop => {
-                            let error_string = format!("failed reading `{}`: {e}", dir.to_string_lossy());
+                            let error_string =
+                                format!("failed reading `{}`: {e}", dir.to_string_lossy());
                             match self.error_behavior {
                                 Display => {
                                     eprintln!("{error_string}");
                                     continue;
-                                },
+                                }
                                 Stop => return Some(Err(anyhow!("{error_string}"))),
-                                _ => unreachable!()
+                                _ => unreachable!(),
                             }
-                        },
-                    }
+                        }
+                    },
                 };
                 for entry in dir_iter {
                     match entry {
-                        Ok(entry) => {
-                            match entry.file_type() {
-                                Ok(file_type) =>
-                                    if file_type.is_file() {
-                                        self.current_dir_entries.push(entry.path());
-                                    } else if file_type.is_dir() {
-                                        self.dirs_to_process.push_front(entry.path());
-                                    },
-                                Err(e) => match self.error_behavior {
-                                    Ignore => continue,
-                                    Display | Stop => {
-                                        let error_string = format!("failed to get file type of `{}`: `{e}", entry.path().to_string_lossy());
-                                        match self.error_behavior {
-                                            Display => {
-                                                eprintln!("{error_string}");
-                                                continue;
-                                            },
-                                            Stop => return Some(Err(anyhow!("{error_string}"))),
-                                            _ => unreachable!()
-                                        }
-                                    },
+                        Ok(entry) => match entry.file_type() {
+                            Ok(file_type) => {
+                                if file_type.is_file() {
+                                    self.current_dir_entries.push(entry.path());
+                                } else if file_type.is_dir() {
+                                    self.dirs_to_process.push_front(entry.path());
                                 }
                             }
+                            Err(e) => match self.error_behavior {
+                                Ignore => continue,
+                                Display | Stop => {
+                                    let error_string = format!(
+                                        "failed to get file type of `{}`: `{e}",
+                                        entry.path().to_string_lossy()
+                                    );
+                                    match self.error_behavior {
+                                        Display => {
+                                            eprintln!("{error_string}");
+                                            continue;
+                                        }
+                                        Stop => return Some(Err(anyhow!("{error_string}"))),
+                                        _ => unreachable!(),
+                                    }
+                                }
+                            },
                         },
-                        Err(e) => return Some(Err(anyhow!("{e}")))
+                        Err(e) => return Some(Err(anyhow!("{e}"))),
                     }
                 }
             } else {
@@ -101,14 +111,22 @@ impl Iterator for DirWalker {
 }
 
 pub fn dirs<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<PathBuf>> {
-    let entry_iter = fs::read_dir(&path).map_err(|error|
-        anyhow!("failed to read directory `{}`: {error}", path.as_ref().to_string_lossy())
-    )?;
+    let entry_iter = fs::read_dir(&path).map_err(|error| {
+        anyhow!(
+            "failed to read directory `{}`: {error}",
+            path.as_ref().to_string_lossy()
+        )
+    })?;
     let mut files = vec![];
     for entry in entry_iter {
-        let entry_path = entry.map_err(|error|
-            anyhow!("failed reading entry in directory `{}`: {error}", path.as_ref().to_string_lossy())
-        )?.path();
+        let entry_path = entry
+            .map_err(|error| {
+                anyhow!(
+                    "failed reading entry in directory `{}`: {error}",
+                    path.as_ref().to_string_lossy()
+                )
+            })?
+            .path();
         if entry_path.is_dir() {
             files.push(entry_path);
         }
@@ -127,18 +145,22 @@ impl Iterator for FilesWalker {
                 Ok(entry) => {
                     let entry_path = entry.path();
                     if entry_path.is_file() {
-                        return Some(entry_path.to_path_buf())
+                        return Some(entry_path.to_path_buf());
                     }
-                },
+                }
                 Err(error) => {
                     if let Some(path) = error.path() {
                         let error_str = match error.io_error() {
                             Some(error) => error.to_string(),
                             None => "unknown".to_owned(),
                         };
-                        eprintln!("error listing files from `{}`: {}", path.to_string_lossy(), error_str);
+                        eprintln!(
+                            "error listing files from `{}`: {}",
+                            path.to_string_lossy(),
+                            error_str
+                        );
                     }
-                },
+                }
             }
         }
     }
@@ -154,7 +176,7 @@ pub fn files_rec<P: AsRef<Path>>(path: P) -> Paths {
 
 pub struct DirsWalker {
     first: bool,
-    iter: walkdir::IntoIter
+    iter: walkdir::IntoIter,
 }
 
 impl Iterator for DirsWalker {
@@ -172,23 +194,30 @@ impl Iterator for DirsWalker {
                     if entry_path.is_dir() {
                         return Some(entry_path.to_path_buf());
                     }
-                },
+                }
                 Err(error) => {
                     if let Some(path) = error.path() {
                         let error_str = match error.io_error() {
                             Some(error) => error.to_string(),
                             None => "unknown".to_owned(),
                         };
-                        eprintln!("error listing files from `{}`: {}", path.to_string_lossy(), error_str);
+                        eprintln!(
+                            "error listing files from `{}`: {}",
+                            path.to_string_lossy(),
+                            error_str
+                        );
                     }
-                },
+                }
             }
         }
     }
 }
 
 pub fn walk_dirs<P: AsRef<Path>>(path: P) -> DirsWalker {
-    DirsWalker { first: true, iter: walkdir::WalkDir::new(path).into_iter() }
+    DirsWalker {
+        first: true,
+        iter: walkdir::WalkDir::new(path).into_iter(),
+    }
 }
 
 // pub fn dirs_rec<P: AsRef<Path>>(path: P) -> Paths {
@@ -201,7 +230,11 @@ pub fn is_unique_dir<P: AsRef<Path>>(dir: P, clones_db: &ClonesDB) -> bool {
 }
 
 // /// returns dirs which only contain uniq files
-pub fn unique_dirs<P: Into<PathBuf>>(dir: P, recursive: bool, clones_db: &ClonesDB) -> anyhow::Result<Vec<PathBuf>> {
+pub fn unique_dirs<P: Into<PathBuf>>(
+    dir: P,
+    recursive: bool,
+    clones_db: &ClonesDB,
+) -> anyhow::Result<Vec<PathBuf>> {
     let dir = dir.into();
     if recursive {
         let mut dirs_to_process = vec![dir];
@@ -215,17 +248,22 @@ pub fn unique_dirs<P: Into<PathBuf>>(dir: P, recursive: bool, clones_db: &Clones
         }
         Ok(unique_dirs)
     } else {
-        Ok(dirs(dir)?.into_iter().filter(|idir| is_unique_dir(idir, clones_db)).collect())
+        Ok(dirs(dir)?
+            .into_iter()
+            .filter(|idir| is_unique_dir(idir, clones_db))
+            .collect())
     }
 }
 
 /// returns directory size in bytes
 pub fn size<P: AsRef<Path>>(dir: P) -> u64 {
-    walk_files(dir).map(|file| std::fs::metadata(file).unwrap().size()).sum()
+    walk_files(dir)
+        .map(|file| std::fs::metadata(file).unwrap().size())
+        .sum()
 }
 
 pub fn file_tree(dir: impl AsRef<Path>, error_behavior: ErrorBehavior) -> anyhow::Result<Tree> {
     let mut tree = Tree::default();
-    tree.extend_with_progress(dir, error_behavior, |_, _|{})?;
+    tree.extend_with_progress(dir, error_behavior, |_, _| {})?;
     Ok(tree)
 }

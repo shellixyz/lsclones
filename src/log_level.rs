@@ -1,4 +1,3 @@
-
 use clap::ValueEnum;
 use strum::Display;
 

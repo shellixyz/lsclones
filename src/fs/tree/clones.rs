@@ -1,20 +1,31 @@
+use std::{
+    collections::{btree_set, hash_map, HashMap},
+    fmt::Display,
+    hash::Hash,
+    path::Path,
+};
 
-use std::{path::Path, collections::{HashMap, hash_map, btree_set}, fmt::Display, hash::Hash};
-
-use derive_more::{Deref, IntoIterator, DerefMut};
-use getset::{Getters, CopyGetters};
 use anyhow::anyhow;
+use derive_more::{Deref, DerefMut, IntoIterator};
+use getset::{CopyGetters, Getters};
 use itertools::Itertools;
 use size::Size;
 
-use crate::{clones::db::{ClonesDB, CloneRefGroup}, path::{HashedAbsolutePathRef, HashedAbsolutePath}, paths::{PathRefs, Paths, PathSet, PathRefSet}, fs::{dir, tree::TraversalOrder}};
+use crate::{
+    clones::db::{CloneRefGroup, ClonesDB},
+    fs::{dir, tree::TraversalOrder},
+    path::{HashedAbsolutePath, HashedAbsolutePathRef},
+    paths::{PathRefSet, PathRefs, PathSet, Paths},
+};
 
-use super::{FSTree, FilesIterKind, UpgradedNode, DirectoryNode, FilesIter};
+use super::{DirectoryNode, FSTree, FilesIter, FilesIterKind, UpgradedNode};
 
 impl FSTree {
-
     pub fn unique_files_iter<'a>(&'a self, clones_db: &'a ClonesDB) -> UniqueFilesIter<'a> {
-        UniqueFilesIter { files_iter: self.traverse_files(TraversalOrder::Pre), clones_db }
+        UniqueFilesIter {
+            files_iter: self.traverse_files(TraversalOrder::Pre),
+            clones_db,
+        }
     }
 
     // get the deepest path inside a clone dir which is also a clone dir because it meets the following conditions:
@@ -25,7 +36,10 @@ impl FSTree {
         let mut first = true;
         loop {
             if clone_dir_node.children().len() < 2 {
-                let clone_dir_child_node_id = clone_dir_node.children().first().expect("a clone dir should not to be empty");
+                let clone_dir_child_node_id = clone_dir_node
+                    .children()
+                    .first()
+                    .expect("a clone dir should not to be empty");
                 let clone_dir_child_node = self.0.get(clone_dir_child_node_id).unwrap();
                 if clone_dir_child_node.children().is_empty() {
                     break;
@@ -46,27 +60,48 @@ impl FSTree {
         Some(&clone_dir_node.data().path)
     }
 
-    pub fn clone_dirs<'a>(&'a self, dir: impl AsRef<Path>, clones_db: &'a ClonesDB, recursive: bool) -> anyhow::Result<Vec<CloneDir<'a>>> {
+    pub fn clone_dirs<'a>(
+        &'a self,
+        dir: impl AsRef<Path>,
+        clones_db: &'a ClonesDB,
+        recursive: bool,
+    ) -> anyhow::Result<Vec<CloneDir<'a>>> {
         let node = self.node_with_path(&dir)?;
-        let UpgradedNode::DirectoryNode(dir_node) = node.upgrade() else { return Err(anyhow!("not a directory: {}", dir.as_ref().to_string_lossy())); };
-        let files_iter_kind = if recursive { FilesIterKind::RecursivePreOrder } else { FilesIterKind::Children };
+        let UpgradedNode::DirectoryNode(dir_node) = node.upgrade() else {
+            return Err(anyhow!(
+                "not a directory: {}",
+                dir.as_ref().to_string_lossy()
+            ));
+        };
+        let files_iter_kind = if recursive {
+            FilesIterKind::RecursivePreOrder
+        } else {
+            FilesIterKind::Children
+        };
         let mut dirs_to_process = vec![dir_node.clone()];
         let mut clone_dirs = vec![];
         while let Some(current_dir) = dirs_to_process.pop() {
-            let file_clones = current_dir.file_nodes_iter(files_iter_kind).map(|file_node| {
-                clones_db.clone_group(file_node.path()).and_then(|group| {
-                    let clones = group.filter_out_dir(current_dir.path());
-                    if clones.is_empty() { None } else { Some((file_node.path(), clones)) }
+            let file_clones = current_dir
+                .file_nodes_iter(files_iter_kind)
+                .map(|file_node| {
+                    clones_db.clone_group(file_node.path()).and_then(|group| {
+                        let clones = group.filter_out_dir(current_dir.path());
+                        if clones.is_empty() {
+                            None
+                        } else {
+                            Some((file_node.path(), clones))
+                        }
+                    })
                 })
-            }).collect::<Option<HashMap<_, _>>>();
+                .collect::<Option<HashMap<_, _>>>();
 
             if let Some(file_clones) = file_clones {
-                if ! file_clones.is_empty() {
+                if !file_clones.is_empty() {
                     let clone_dir = CloneDir {
                         path: current_dir.path(),
                         deep_path: self.clone_dir_deep_path(&current_dir),
                         clones: file_clones,
-                        clones_db
+                        clones_db,
                     };
                     clone_dirs.push(clone_dir);
                 }
@@ -78,11 +113,19 @@ impl FSTree {
     }
 
     // returns files in dir without inside clones aka if the directory was isolated there would be no clones
-    pub fn dir_decloned_inside_files(&self, dir: impl AsRef<Path>, recursive: bool, clones_db: &ClonesDB) -> anyhow::Result<PathRefSet> {
+    pub fn dir_decloned_inside_files(
+        &self,
+        dir: impl AsRef<Path>,
+        recursive: bool,
+        clones_db: &ClonesDB,
+    ) -> anyhow::Result<PathRefSet> {
         let mut present_groups: Vec<&CloneRefGroup> = vec![];
-        let files_iter_kind = if recursive { FilesIterKind::RecursivePreOrder } else { FilesIterKind::Children };
-        let files =
-            self
+        let files_iter_kind = if recursive {
+            FilesIterKind::RecursivePreOrder
+        } else {
+            FilesIterKind::Children
+        };
+        let files = self
             .path_files_iter(dir, files_iter_kind)?
             .filter_map(|file| {
                 let file = HashedAbsolutePathRef::new(file).expect("path should be absolute");
@@ -100,52 +143,70 @@ impl FSTree {
     }
 
     // returns groups of identical clone dirs
-    pub fn clone_dir_groups<'a>(&'a self, dir: impl AsRef<Path>, clones_db: &'a ClonesDB, recursive: bool) -> anyhow::Result<Vec<CloneDirGroup<'a>>> {
+    pub fn clone_dir_groups<'a>(
+        &'a self,
+        dir: impl AsRef<Path>,
+        clones_db: &'a ClonesDB,
+        recursive: bool,
+    ) -> anyhow::Result<Vec<CloneDirGroup<'a>>> {
         let clone_dirs = self.clone_dirs(dir, clones_db, recursive)?;
         let mut selected = HashMap::new();
-        let clone_dir_groups =
-            clone_dirs
+        let clone_dir_groups = clone_dirs
             .iter()
             .filter_map(|clone_dir| {
+                if selected.contains_key(clone_dir.path) {
+                    return None;
+                }
 
-                if selected.contains_key(clone_dir.path) { return None; }
-
-                let clone_dir_group = clone_dirs.iter().filter(|i_clone_dir| {
-
-                    if selected.contains_key(i_clone_dir.path) { return false; }
-
-                    if std::ptr::eq(clone_dir, *i_clone_dir) { return true; }
-
-                    let i_clone_dir_path = HashedAbsolutePath::from(i_clone_dir.path);
-                    let has_missing_files = clone_dir.files_iter().any(|file|
-                        match clones_db.clone_group(file) {
-                            Some(group) =>
-                                ! group.iter().any(|group_file| group_file.starts_with_hashed_path(&i_clone_dir_path)),
-                            None => true
+                let clone_dir_group = clone_dirs
+                    .iter()
+                    .filter(|i_clone_dir| {
+                        if selected.contains_key(i_clone_dir.path) {
+                            return false;
                         }
-                    );
 
-                    if has_missing_files {
-                        false
-                    } else {
-                        let clone_dir_files = clone_dir.clones.values().flat_map(|crg| crg.iter().map(|path| path.inner().to_owned()
-                        )).collect::<PathSet>();
-                        let i_clone_dir_files = dir::files_rec(i_clone_dir.path).into_set();
-                        let has_extra_files = i_clone_dir_files.difference(&clone_dir_files).next().is_some();
-                        !has_extra_files
-                    }
-                }).cloned().collect_vec();
+                        if std::ptr::eq(clone_dir, *i_clone_dir) {
+                            return true;
+                        }
+
+                        let i_clone_dir_path = HashedAbsolutePath::from(i_clone_dir.path);
+                        let has_missing_files = clone_dir.files_iter().any(|file| match clones_db
+                            .clone_group(file)
+                        {
+                            Some(group) => !group.iter().any(|group_file| {
+                                group_file.starts_with_hashed_path(&i_clone_dir_path)
+                            }),
+                            None => true,
+                        });
+
+                        if has_missing_files {
+                            false
+                        } else {
+                            let clone_dir_files = clone_dir
+                                .clones
+                                .values()
+                                .flat_map(|crg| crg.iter().map(|path| path.inner().to_owned()))
+                                .collect::<PathSet>();
+                            let i_clone_dir_files = dir::files_rec(i_clone_dir.path).into_set();
+                            let has_extra_files = i_clone_dir_files
+                                .difference(&clone_dir_files)
+                                .next()
+                                .is_some();
+                            !has_extra_files
+                        }
+                    })
+                    .cloned()
+                    .collect_vec();
 
                 for clone_dir in &clone_dir_group {
                     selected.insert(clone_dir.path, ());
                 }
 
                 (!clone_dir_group.is_empty()).then_some(CloneDirGroup(clone_dir_group))
-
-            }).collect_vec();
+            })
+            .collect_vec();
         Ok(clone_dir_groups)
     }
-
 }
 
 #[derive(Debug, Getters, CopyGetters, Clone)]
@@ -158,7 +219,7 @@ pub struct CloneDir<'a> {
     #[getset(get = "pub")]
     deep_path: Option<&'a Path>,
     #[getset(get = "pub")]
-    clones: HashMap<&'a Path, CloneRefGroup<'a>>
+    clones: HashMap<&'a Path, CloneRefGroup<'a>>,
 }
 
 impl PartialEq for CloneDir<'_> {
@@ -182,7 +243,6 @@ impl Display for CloneDir<'_> {
 }
 
 impl<'a> CloneDir<'a> {
-
     pub fn ref_dirs_iter(&self) -> RefDirsIter {
         let mut clones_iter = self.clones.iter();
         let first_clone_files_iter = clones_iter.next().unwrap().1.iter();
@@ -193,7 +253,9 @@ impl<'a> CloneDir<'a> {
         CloneDirFilesIter(self.clones.keys())
     }
 
-    pub fn file_count(&self) -> usize { self.clones.len() }
+    pub fn file_count(&self) -> usize {
+        self.clones.len()
+    }
 
     pub fn size_bytes(&self) -> u64 {
         self.clones.values().map(|group| group.file_size()).sum()
@@ -202,7 +264,6 @@ impl<'a> CloneDir<'a> {
     pub fn deep_path_rel(&self) -> Option<&'a Path> {
         Some(self.deep_path?.strip_prefix(self.path).unwrap())
     }
-
 }
 
 #[derive(Debug, Deref, DerefMut, IntoIterator)]
@@ -210,7 +271,6 @@ impl<'a> CloneDir<'a> {
 pub struct CloneDirs<'a>(Vec<CloneDir<'a>>);
 
 impl CloneDirs<'_> {
-
     pub fn file_count(&self) -> usize {
         self.iter().map(CloneDir::file_count).sum()
     }
@@ -222,7 +282,6 @@ impl CloneDirs<'_> {
     pub fn size_human(&self) -> Size {
         Size::from_bytes(self.size_bytes())
     }
-
 }
 
 impl<'a> FromIterator<CloneDir<'a>> for CloneDirs<'a> {
@@ -236,19 +295,24 @@ impl<'a> FromIterator<CloneDir<'a>> for CloneDirs<'a> {
 pub struct CloneDirGroup<'a>(Vec<CloneDir<'a>>);
 
 impl CloneDirGroup<'_> {
-
     pub fn ref_dirs(&self) -> Vec<RefDir> {
-        if self.0.is_empty() { return vec![]; }
+        if self.0.is_empty() {
+            return vec![];
+        }
         let first_clone_dir = self.0.first().unwrap();
-        first_clone_dir.clones.iter().flat_map(|(_, clone_group)|
-            clone_group.files().iter().filter_map(|file| {
-                let part_of_clone_dir_group = self.0.iter().any(|cd| file.inner().starts_with(cd.path));
-                (!part_of_clone_dir_group).then(|| file.parent().unwrap().to_path_buf())
+        first_clone_dir
+            .clones
+            .iter()
+            .flat_map(|(_, clone_group)| {
+                clone_group.files().iter().filter_map(|file| {
+                    let part_of_clone_dir_group =
+                        self.0.iter().any(|cd| file.inner().starts_with(cd.path));
+                    (!part_of_clone_dir_group).then(|| file.parent().unwrap().to_path_buf())
+                })
             })
-        )
-        .unique()
-        .map(|path| RefDir::new(first_clone_dir, HashedAbsolutePath::from(path)))
-        .collect()
+            .unique()
+            .map(|path| RefDir::new(first_clone_dir, HashedAbsolutePath::from(path)))
+            .collect()
     }
 
     pub fn file_count(&self) -> usize {
@@ -261,17 +325,17 @@ impl CloneDirGroup<'_> {
 
     // minimum as if there is no clone from these directories outside of them
     pub fn minimum_reclaimable_size(&self) -> u64 {
-        if self.0.is_empty() { return 0; }
+        if self.0.is_empty() {
+            return 0;
+        }
         (self.0.len() - 1) as u64 * self.first().unwrap().size_bytes()
     }
-
 }
 
 #[derive(Debug, Deref, IntoIterator)]
 pub struct CloneDirGroups<'a>(Vec<CloneDirGroup<'a>>);
 
 impl CloneDirGroups<'_> {
-
     pub fn dir_count(&self) -> usize {
         self.iter().map(|group| group.len()).sum()
     }
@@ -289,13 +353,14 @@ impl CloneDirGroups<'_> {
     }
 
     pub fn minimum_reclaimable_size(&self) -> u64 {
-        self.iter().map(CloneDirGroup::minimum_reclaimable_size).sum()
+        self.iter()
+            .map(CloneDirGroup::minimum_reclaimable_size)
+            .sum()
     }
 
     pub fn minimum_reclaimable_size_human(&self) -> Size {
         Size::from_bytes(self.minimum_reclaimable_size())
     }
-
 }
 
 impl<'a> FromIterator<CloneDirGroup<'a>> for CloneDirGroups<'a> {
@@ -315,11 +380,15 @@ impl<'a> RefDirsIter<'a> {
     pub fn new(
         clone_dir: &'a CloneDir<'a>,
         clones_iter: hash_map::Iter<'a, &'a Path, CloneRefGroup<'a>>,
-        clone_files_iter: btree_set::Iter<'a, HashedAbsolutePathRef<'a>>
+        clone_files_iter: btree_set::Iter<'a, HashedAbsolutePathRef<'a>>,
     ) -> Self {
-        Self { clone_dir, clones_iter, clone_files_iter, returned: HashMap::new() }
+        Self {
+            clone_dir,
+            clones_iter,
+            clone_files_iter,
+            returned: HashMap::new(),
+        }
     }
-
 }
 
 impl<'a> Iterator for RefDirsIter<'a> {
@@ -365,46 +434,61 @@ impl Display for RefDir<'_> {
 }
 
 impl<'a> RefDir<'a> {
-    pub fn new(clone_dir: &'a CloneDir<'a>, path: HashedAbsolutePath) -> Self { Self { clone_dir, path } }
+    pub fn new(clone_dir: &'a CloneDir<'a>, path: HashedAbsolutePath) -> Self {
+        Self { clone_dir, path }
+    }
 
     /// returns the list of files in the clone dir which match files in this RefDir
     pub fn clone_dir_clone_files(&self) -> PathRefs {
-        self.clone_dir.clones.iter().filter_map(|(file, clones)|
-            clones.iter().any(|clone| clone.parent_is_hap(&self.path)).then_some(*file)
-        ).collect::<PathRefs>()
+        self.clone_dir
+            .clones
+            .iter()
+            .filter_map(|(file, clones)| {
+                clones
+                    .iter()
+                    .any(|clone| clone.parent_is_hap(&self.path))
+                    .then_some(*file)
+            })
+            .collect::<PathRefs>()
     }
 
     /// returns files which are in the clone dir but not in this RefDir
     pub fn missing(&self) -> PathRefs {
-        self.clone_dir.files_iter().filter(|file|
-            match self.clone_dir.clones_db.clone_group(file) {
-                Some(group) =>
-                    ! group.iter().any(|group_file| group_file.starts_with_hashed_path(&self.path)),
-                None => true
-            }
-        ).collect()
+        self.clone_dir
+            .files_iter()
+            .filter(|file| match self.clone_dir.clones_db.clone_group(file) {
+                Some(group) => !group
+                    .iter()
+                    .any(|group_file| group_file.starts_with_hashed_path(&self.path)),
+                None => true,
+            })
+            .collect()
     }
 
     pub fn clone_files(&self) -> PathRefs {
-        self.clone_dir.clones
+        self.clone_dir
+            .clones
             .values()
             .flat_map(CloneRefGroup::files)
-            .filter_map(|clone|
-                clone.parent_is_hap(&self.path).then_some(AsRef::<Path>::as_ref(clone))
-            )
+            .filter_map(|clone| {
+                clone
+                    .parent_is_hap(&self.path)
+                    .then_some(AsRef::<Path>::as_ref(clone))
+            })
             .collect()
     }
 
     /// returns files which are in this RefDir but not in the clone dir
     pub fn extra(&self) -> Paths {
         // FIXME: better than above but we might still be walking the same tree multiple times
-        dir::files_rec(self.path.as_path()).into_set()
+        dir::files_rec(self.path.as_path())
+            .into_set()
             .difference(&Paths::from(self.clone_files()).into_set())
             // don't count the file as extra if the file is in the clone dir which can happen if the clone dir is inside the ref dir
             .filter(|file| !file.starts_with(self.clone_dir.path))
-            .cloned().collect()
+            .cloned()
+            .collect()
     }
-
 }
 
 pub struct CloneDirFilesIter<'a>(hash_map::Keys<'a, &'a Path, CloneRefGroup<'a>>);
@@ -428,7 +512,7 @@ impl<'a> Iterator for UniqueFilesIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let file = self.files_iter.next()?;
-            if ! self.clones_db.file_is_a_clone(file) {
+            if !self.clones_db.file_is_a_clone(file) {
                 return Some(file);
             }
         }
